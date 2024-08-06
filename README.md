@@ -16,7 +16,13 @@ In this project we will use a multivariable regression and valuation model to pr
    - [03-2. More Comparing](#more-compariong)
  - [04. Split Training & Test Dataset](#split-training-and-test-dataset)
  - [05. Multivariable Regression](#multivariable-regression)
-  
+   - [05-1. Fisrt Regression](#first-regression)
+   - [05-2. Analyse the Estimated Values & Regression Residuals](#analyse-the-estimated-values-&-regression-residuals)
+   - [05-3. Data Transformations for a Better Fit](#data-transformations-for-a-better-fit)
+ - [06. Regression using Log Prices](#regression-using-log-prices)
+ - [07. Compare Out of Sample Performance](#compare-out-of-sample-performance)
+ - [08. Predict a Property's Value using the Regression Coefficients](#predict-a-property's-value-using-the-regression-coefficients)
+ - [09. Results and Next steps](#results-and-next-steps)
  ---
 
 ### Project overview
@@ -198,3 +204,157 @@ print(f'Test data makes up the remaining {test_pct:0.3}%.')
 ---
 
 ### Multivariable Regression
+We use sklearn to run the regression on the training dataset.
+
+#### First Regression
+```Python
+regr = LinearRegression()
+regr.fit(X_train, y_train)
+rsquared = regr.score(X_train, y_train)
+
+print(f'Training data r-squared: {rsquared:.2}')
+```
+#### Analyse the Estimated Values & Regression Residuals
+The next step is to evaluate our regression. How good our regression is depends not only on the r-squared. It also depends on the residuals - the difference between the model's predictions (
+) and the true values (
+) inside y_train.
+
+```Python
+predicted_values = regr.predict(X_train)
+residuals = (y_train - predicted_values)
+```
+```Python
+# Original Regression of Actual vs. Predicted Prices
+plt.figure(dpi=100)
+plt.scatter(x=y_train, y=predicted_vals, c='indigo', alpha=0.6)
+plt.plot(y_train, y_train, color='cyan')
+plt.title(f'Actual vs Predicted Prices: $y _i$ vs $\hat y_i$', fontsize=17)
+plt.xlabel('Actual prices 000s $y _i$', fontsize=14)
+plt.ylabel('Prediced prices 000s $\hat y _i$', fontsize=14)
+plt.show()
+
+# Residuals vs Predicted values
+plt.figure(dpi=100)
+plt.scatter(x=predicted_vals, y=residuals, c='indigo', alpha=0.6)
+plt.title('Residuals vs Predicted Values', fontsize=17)
+plt.xlabel('Predicted Prices $\hat y _i$', fontsize=14)
+plt.ylabel('Residuals', fontsize=14)
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/540d68e0-8c8c-457d-bddf-b015c77c0b9e)
+![image](https://github.com/user-attachments/assets/1be7089c-3e9a-475c-9eba-63cd87b2de10)
+
+#### Data Transformations for a Better Fit
+
+We have two options at this point: 
+
+1. Change our model entirely. Perhaps a linear model is not appropriate. 
+2. Transform our data to make it fit better with our linear model. 
+
+Let's try a data transformation approach. 
+
+We have to investigate if the target `data['PRICE']` could be a suitable candidate for a log transformation. 
+
+* Use Seaborn's `.displot()` to show a histogram and KDE of the price data. 
+* Calculate the skew of that distribution.
+* Use [NumPy's `log()` function](https://numpy.org/doc/stable/reference/generated/numpy.log.html) to create a Series that has the log prices
+* Plot the log prices using Seaborn's `.displot()` and calculate the skew. 
+* Which distribution has a skew that's closer to zero?
+
+```Python
+tgt_skew = data['PRICE'].skew()
+sns.displot(data['PRICE'], kde='kde', color='green')
+plt.title(f'Normal Prices. Skew is {tgt_skew:.3}')
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/af179add-8f25-4422-8bb4-b2bd01bef861)
+
+```Python
+y_log = np.log(data['PRICE'])
+sns.displot(y_log, kde=True)
+plt.title(f'Log Prices. Skew is {y_log.skew():.3}')
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/c896c1c3-3d37-4e6b-bfe5-3fdac25cdb62)
+
+The log prices have a skew that's closer to zero. This makes them a good candidate for use in our linear model. Perhaps using log prices will improve our regression's r-squared and our model's residuals.
+
+---
+
+### Regression using Log Prices
+
+Using log prices instead, our model has changed to:
+
+$$ \log (PR \hat ICE) = \theta _0 + \theta _1 RM + \theta _2 NOX + \theta_3 DIS + \theta _4 CHAS + ... + \theta _{13} LSTAT $$
+
+```Python
+new_target = np.log(data['PRICE']) # Use log prices
+features = data.drop('PRICE', axis=1)
+
+X_train, X_test, log_y_train, log_y_test = train_test_split(features, 
+                                                    new_target, 
+                                                    test_size=0.2, 
+                                                    random_state=10)
+
+log_regr = LinearRegression()
+log_regr.fit(X_train, log_y_train)
+log_rsquared = log_regr.score(X_train, log_y_train)
+
+log_predictions = log_regr.predict(X_train)
+log_residuals = (log_y_train - log_predictions)
+
+print(f'Training data r-squared: {log_rsquared:.2}')
+```
+And if we compare mean and skew values of two models it is obvious that the second model is more accurate:
+```Python
+log_resid_mean = round(log_residuals.mean(), 2)
+log_resid_skew = round(log_residuals.skew(), 2)
+
+sns.displot(log_residuals, kde=True, color='navy')
+plt.title(f'Log price model: Residuals Skew ({log_resid_skew}) Mean ({log_resid_mean})')
+plt.show()
+
+sns.displot(residuals, kde=True, color='indigo')
+plt.title(f'Original model: Residuals Skew ({resid_skew}) Mean ({resid_mean})')
+plt.show()
+```
+![image](https://github.com/user-attachments/assets/2b48f55d-5b01-4696-a783-12c09b8af29c)  
+![image](https://github.com/user-attachments/assets/e01f0061-e0fb-41d8-bb8e-0b0bd0861ce3)
+
+Our new regression residuals have a skew of 0.09 compared to a skew of 1.46. The mean is still around 0. From both a residuals perspective and an r-squared perspective we have improved our model with the data transformation
+
+---
+
+### Compare Out of Sample Performance
+The real test is how our model performs on data that it has not "seen" yet. This is where our `X_test` comes in.
+```Python
+print(f'Original Model Test Data r-squared: {regr.score(X_test, y_test):.2}')
+print(f'Log Model Test Data r-squared: {log_regr.score(X_test, log_y_test):.2}')
+```
+
+By definition, the model has not been optimised for the testing data. Therefore performance will be worse than on the training data. However, our r-squared still remains high, so we have built a useful model.
+
+---
+
+### Predict a Property's Value using the Regression Coefficients
+Let's predict how much the average property is worth using the stats above.
+```Python
+# Make prediction
+log_estimate = log_regr.predict(property_stats)[0]
+print(f'The log price estimate is ${log_estimate:.3}')
+
+# Convert Log Prices to Acutal Dollar Values
+dollar_est = np.e**log_estimate * 1000
+# or use
+dollar_est = np.exp(log_estimate) * 1000
+print(f'The property is estimated to be worth ${dollar_est:.6}')
+```
+A property with an average value for all the features has a value of $20,700.
+
+---
+
+### Results and Next Steps
+Overall our model can predict house price values depending on the features of the house. However, to make it more accurate we could:
+- Try better models to see if they predict more accurately;
+- Try better data transformations
+- Use a bigger dataset to train our model 
